@@ -35,6 +35,7 @@ const N_DIV_2 = new BN('7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46
  */
 module.exports = class Transaction {
   constructor (data) {
+    data = data || {}
     // Define Properties
     const fields = [{
       name: 'nonce',
@@ -100,6 +101,13 @@ module.exports = class Transaction {
       get: this.getSenderAddress.bind(this)
     })
 
+    // calculate chainId from signature
+    let sigV = ethUtil.bufferToInt(this.v)
+    let chainId = Math.floor((sigV - 35) / 2)
+    if (chainId < 0) chainId = 0
+
+    // set chainId
+    this._chainId = chainId || data.chainId || 0
     this._homestead = true
   }
 
@@ -113,20 +121,38 @@ module.exports = class Transaction {
 
   /**
    * Computes a sha3-256 hash of the serialized tx
-   * @param {Boolean} [signature=true] whether or not to inculde the signature
+   * @param {Boolean} [includeSignature=true] whether or not to inculde the signature
    * @return {Buffer}
    */
-  hash (signature) {
-    let toHash
+  hash (includeSignature) {
+    if (includeSignature === undefined) includeSignature = true
+    // backup original signature
+    const rawCopy = this.raw.slice(0)
 
-    if (typeof signature === 'undefined') {
-      signature = true
+    // modify raw for signature generation only
+    if (this._chainId > 0) {
+      includeSignature = true
+      this.v = this._chainId
+      this.r = 0
+      this.s = 0
     }
 
-    toHash = signature ? this.raw : this.raw.slice(0, 6)
+    // generate rlp params for hash
+    let txRawForHash = includeSignature ? this.raw : this.raw.slice(0, 6)
+
+    // restore original signature
+    this.raw = rawCopy.slice()
 
     // create hash
-    return ethUtil.rlphash(toHash)
+    return ethUtil.rlphash(txRawForHash)
+  }
+
+  /**
+   * returns the public key of the sender
+   * @return {Buffer}
+   */
+  getChainId () {
+    return this._chainId
   }
 
   /**
@@ -148,7 +174,7 @@ module.exports = class Transaction {
    */
   getSenderPublicKey () {
     if (!this._senderPubKey || !this._senderPubKey.length) {
-      this.verifySignature()
+      if (!this.verifySignature()) throw new Error('Invalid Signature')
     }
     return this._senderPubKey
   }
@@ -159,14 +185,16 @@ module.exports = class Transaction {
    */
   verifySignature () {
     const msgHash = this.hash(false)
-
     // All transaction signatures whose s-value is greater than secp256k1n/2 are considered invalid.
     if (this._homestead && new BN(this.s).cmp(N_DIV_2) === 1) {
       return false
     }
 
     try {
-      const v = ethUtil.bufferToInt(this.v)
+      let v = ethUtil.bufferToInt(this.v)
+      if (this._chainId > 0) {
+        v -= this._chainId * 2 + 8
+      }
       this._senderPubKey = ethUtil.ecrecover(msgHash, v, this.r, this.s)
     } catch (e) {
       return false
@@ -182,6 +210,9 @@ module.exports = class Transaction {
   sign (privateKey) {
     const msgHash = this.hash(false)
     const sig = ethUtil.ecsign(msgHash, privateKey)
+    if (this._chainId > 0) {
+      sig.v += this._chainId * 2 + 8
+    }
     Object.assign(this, sig)
   }
 
@@ -192,7 +223,7 @@ module.exports = class Transaction {
   getDataFee () {
     const data = this.raw[5]
     const cost = new BN(0)
-    for (var i = 0; i < data.length; i++) {
+    for (let i = 0; i < data.length; i++) {
       data[i] === 0 ? cost.iaddn(fees.txDataZeroGas.v) : cost.iaddn(fees.txDataNonZeroGas.v)
     }
     return cost
