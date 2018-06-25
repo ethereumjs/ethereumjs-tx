@@ -51,6 +51,13 @@ tape('[Transaction]: Basic functions', function (t) {
     transactions.forEach(function (tx) {
       st.equals(tx.verifySignature(), true)
     })
+
+    st.throws(function () {
+      var tx2 = new Transaction(transactions[0].serialize())
+      tx2.r[0] += 1
+      tx2.verifySignature()
+    })
+
     st.end()
   })
 
