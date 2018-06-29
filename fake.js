@@ -50,7 +50,7 @@ module.exports = class FakeTransaction extends Transaction {
     })
 
     // set from address or default to null address
-    this.from = (data && data.from) ? data.from : '0x0000000000000000000000000000000000000000'
+    this.from = (data && data.from) ? data.from : '0x0000000000000000000000000000000000000001'
   }
 
   /**
