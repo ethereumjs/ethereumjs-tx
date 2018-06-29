@@ -20,4 +20,19 @@ tape('[FakeTransaction]: Basic functions', function (t) {
     var modifiedFromFieldTxHash = utils.bufferToHex(modifiedFromFieldTx.hash())
     st.notEqual(baseTxHash, modifiedFromFieldTxHash, 'FakeTransactions with different `from` addresses but otherwise identical data should have different hashes')
   })
+
+  t.test('should handle missing from address when hashing a transaction', function (st) {
+    st.plan(0)
+    var txData = {
+      data: '0x7cf5dab00000000000000000000000000000000000000000000000000000000000000005',
+      gasLimit: '0x15f90',
+      gasPrice: '0x1',
+      nonce: '0x01',
+      to: '0xd9024df085d09398ec76fbed18cac0e1149f50dc',
+      value: '0x0'
+    }
+    var tx = new FakeTransaction(txData)
+    tx.hash()
+    st.end()
+  })
 })
