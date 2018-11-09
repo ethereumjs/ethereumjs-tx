@@ -81,7 +81,7 @@ class Transaction {
     }, {
       name: 'v',
       allowZero: true,
-      default: new Buffer([0x1c])
+      default: ((data.chainId) ? data.chainId : new Buffer([0x01]))
     }, {
       name: 'r',
       length: 32,
