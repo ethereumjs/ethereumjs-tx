@@ -17,6 +17,9 @@ const N_DIV_2 = new BN('7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46
  *   to: '0x0000000000000000000000000000000000000000',
  *   value: '0x00',
  *   data: '0x7f7465737432000000000000000000000000000000000000000000000000000000600057',
+ *   token: '0xc891d581be98880cce6a10f26af2e4cf4e730bbb',
+ *   exchanger: '0x8102c0ecece895b8fefbddf42b95b7a20925b0c8',
+ *   exchangeRate: '0xDE0B6B3A7640000',
  *   v: '0x1c',
  *   r: '0x5e1d3a76fbf824220eafc8c79ad578ad2b67d01b0c2425eb1f1347e8f50882ab',
  *   s: '0x5bd428537f05f9830e93792f90ea6a3e2d1ee84952dd96edbae9f658f831ab13'
@@ -35,8 +38,11 @@ const N_DIV_2 = new BN('7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46
  * @param {Buffer} data.gasLimit transaction gas limit
  * @param {Buffer} data.gasPrice transaction gas price
  * @param {Buffer} data.to to the to address
- * @param {Buffer} data.value the amount of ether sent
+ * @param {Buffer} data.value the amount of naka sent
  * @param {Buffer} data.data this will contain the data of the message or the init of a contract
+ * @param {Buffer} data.token address of the token to pay with
+ * @param {Buffer} data.exchanger address of the exchanger who will accept the token and pay the tx fee
+ * @param {Buffer} data.exchangeRate exchange rate of 1 NRC token to x NAKA
  * @param {Buffer} data.v EC recovery ID
  * @param {Buffer} data.r EC signature parameter
  * @param {Buffer} data.s EC signature parameter
@@ -76,6 +82,21 @@ class Transaction {
     }, {
       name: 'data',
       alias: 'input',
+      allowZero: true,
+      default: new Buffer([])
+    }, {
+      name: 'token',
+      length: 20,
+      allowZero: true,
+      default: new Buffer([])
+    }, {
+      name: 'exchanger',
+      length: 20,
+      allowZero: true,
+      default: new Buffer([])
+    }, {
+      name: 'exchangeRate',
+      length: 32,
       allowZero: true,
       default: new Buffer([])
     }, {
