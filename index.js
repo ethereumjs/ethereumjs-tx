@@ -63,7 +63,11 @@ class Transaction {
       let hardfork = opts.hardfork ? opts.hardfork : 'byzantium'
       let supportedHardforks = [
         'byzantium',
-        'constantinople'
+        'constantinople',
+        'chainstart',
+        'homestead',
+        'tangerineWhistle',
+        'spuriousDragon',
       ]
       this._common = new Common(chain, hardfork, supportedHardforks)
     }
@@ -184,7 +188,7 @@ class Transaction {
     if (includeSignature) {
       items = this.raw
     } else {
-      if (this._chainId > 0) {
+      if (this._chainId > 0 && this._common.gteHardfork('spuriousDragon')) {
         const raw = this.raw.slice()
         this.v = this._chainId
         this.r = 0
@@ -195,7 +199,6 @@ class Transaction {
         items = this.raw.slice(0, 6)
       }
     }
-
     // create hash
     return ethUtil.rlphash(items)
   }
@@ -245,10 +248,11 @@ class Transaction {
 
     try {
       let v = ethUtil.bufferToInt(this.v)
-      if (this._chainId > 0) {
-        v -= this._chainId * 2 + 8
-      }
-      this._senderPubKey = ethUtil.ecrecover(msgHash, v, this.r, this.s)
+      const vToBeNormalized = v >= 37
+        if (this._chainId > 0 && vToBeNormalized && this._common.gteHardfork('spuriousDragon')) {
+          v -= this._chainId * 2 + 8
+        }
+      this._senderPubKey = ethUtil.ecrecover(msgHash, v, this.r, this.s, !vToBeNormalized && this._common.gteHardfork('spuriousDragon') && this._chainId)
     } catch (e) {
       return false
     }
@@ -313,13 +317,14 @@ class Transaction {
    */
   validate (stringError) {
     const errors = []
-    if (!this.verifySignature()) {
+    if (!ethUtil.isValidSignature(ethUtil.bufferToInt(this.v), this.r, this.s, this._homestead, this._chainId)) {
       errors.push('Invalid Signature')
     }
 
     if (this.getBaseFee().cmp(new BN(this.gasLimit)) > 0) {
       errors.push([`gas limit is too low. Need at least ${this.getBaseFee()}`])
     }
+
 
     if (stringError === undefined || stringError === false) {
       return errors.length === 0
