@@ -240,7 +240,7 @@ tape('[Transaction]: Basic functions', function (t) {
   })
 
   t.test('EIP155 hashing when singing', function (st) {
-    txFixtures.slice(0, 3).forEach(function (txData) {
+    txFixtures.slice(0, 4).forEach(function (txData) {
       const tx = new Transaction(txData.raw.slice(0, 6), {chain: 1})
 
       var privKey = new Buffer(txData.privateKey, 'hex')
@@ -252,7 +252,64 @@ tape('[Transaction]: Basic functions', function (t) {
         'computed sender address should equal the fixture\'s one'
       )
     })
+    st.end()
+  })
 
+  t.test('automatically prepend 0x to transaction fields when data is passed as object', function (st) {
+    var rawTxWithout0x = {
+      nonce: 0,
+      gasPrice: '4a817c800',
+      gasLimit: 21000,
+      to: '3535353535353535353535353535353535353535',
+      value: 'de0b6b3a7640000',
+      data: ''
+    }
+    var txWithout0x = new Transaction(rawTxWithout0x)
+
+    var rawTxWith0x = {
+      nonce: '0x0',
+      gasPrice: '0x4a817c800',
+      gasLimit: '0x5208',
+      to: '0x3535353535353535353535353535353535353535',
+      value: '0xde0b6b3a7640000',
+      data: '0x'
+    }
+    var txWith0x = new Transaction(rawTxWith0x)
+
+    st.equal(txWithout0x.hash().toString('hex'), txWith0x.hash().toString('hex'))
+    st.equal(txWithout0x.serialize().toString('hex'), txWith0x.serialize().toString('hex'))
+    st.end()
+  })
+
+  t.test('automatically prepend 0x to transaction fields when data is passed as array', function (st) {
+    var rawTxWith0x = [
+      '0x0',
+      '0x4a817c800',
+      '0x5208',
+      '0x3535353535353535353535353535353535353535',
+      '0x0de0b6b3a7640000',
+      '0xab',
+      '0x25',
+      '0x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276',
+      '0x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83'
+    ]
+    var txWith0x = new Transaction(rawTxWith0x)
+
+    var rawTxWithout0x = [
+      '0',
+      '4a817c800',
+      '5208',
+      '3535353535353535353535353535353535353535',
+      '0de0b6b3a7640000',
+      'ab',
+      '25',
+      '28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276',
+      '67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83'
+    ]
+    var txWithout0x = new Transaction(rawTxWithout0x)
+
+    st.equal(txWithout0x.hash().toString('hex'), txWith0x.hash().toString('hex'))
+    st.equal(txWithout0x.serialize().toString('hex'), txWith0x.serialize().toString('hex'))
     st.end()
   })
 })

@@ -65,6 +65,15 @@ class Transaction {
     }
 
     data = data || {}
+    // Ensure all transaction properties that are strings are 0x prefixed
+    if (Array.isArray(data) || typeof data === 'object') {
+      Object.keys(data).forEach(key => {
+        data[key] = typeof data[key] === 'string'
+          ? ethUtil.addHexPrefix(data[key])
+          : data[key]
+      })
+    }
+
     // Define Properties
     const fields = [{
       name: 'nonce',
