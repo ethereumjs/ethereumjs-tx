@@ -296,4 +296,25 @@ tape('[Transaction]: Basic functions', function (t) {
     st.equal(txWithout0x.serialize().toString('hex'), txWith0x.serialize().toString('hex'))
     st.end()
   })
+
+  t.test('should allow nonce to be zero', function (st) {
+    var txParams = {
+      from: '0xf721a58f9b5ee1e1fcd54fcdcc763c04c842b1f8',
+      to: '0x2c43899c3406ecaca88bebefd741cfba163d32c3',
+      nonce: '0x0',
+      gasPrice: '0x6fc23ac00',
+      gasLimit: '0xc350',
+      chainId: 3
+    }
+    var tx = new Transaction(txParams)
+    var privateKey = "be028c274b85d9bb17085f5476da75164f6855ec3f7c15ad39a8cee4df3f0b23"
+
+    tx.sign(Buffer.from(privateKey, "hex"))
+    var serializedTx = tx.serialize()
+    var rawTx = "0x" + serializedTx.toString("hex")
+
+    const parsedTx = new Transaction(rawTx)
+    st.equal(parsedTx.nonce.toString("hex"), '00')
+    st.end()
+  })
 })

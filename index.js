@@ -79,6 +79,8 @@ class Transaction {
       name: 'nonce',
       length: 32,
       allowLess: true,
+      allowZero: true,
+      isQuantity: true,
       default: new Buffer([])
     }, {
       name: 'gasPrice',
@@ -123,6 +125,7 @@ class Transaction {
       allowLess: true,
       default: new Buffer([])
     }]
+    this.fields = fields
 
     /**
      * Returns the rlp encoding of the transaction
@@ -212,6 +215,12 @@ class Transaction {
         items = this.raw.slice(0, 6)
       }
     }
+
+    items = items.map((item, i) => {
+      return this.fields[i].isQuantity && item.equals(Buffer.from([0]))
+        ? Buffer.allocUnsafe(0)
+        : item
+    })
 
     // create hash
     return ethUtil.rlphash(items)
