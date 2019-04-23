@@ -276,6 +276,7 @@ tape('[Transaction]: Basic functions', function (t) {
     }
     var txWith0x = new Transaction(rawTxWith0x)
 
+    st.deepEqual(txWithout0x.raw, txWith0x.raw)
     st.equal(txWithout0x.hash().toString('hex'), txWith0x.hash().toString('hex'))
     st.equal(txWithout0x.serialize().toString('hex'), txWith0x.serialize().toString('hex'))
     st.end()
@@ -308,6 +309,7 @@ tape('[Transaction]: Basic functions', function (t) {
     ]
     var txWithout0x = new Transaction(rawTxWithout0x)
 
+    st.deepEqual(txWithout0x.raw, txWith0x.raw)
     st.equal(txWithout0x.hash().toString('hex'), txWith0x.hash().toString('hex'))
     st.equal(txWithout0x.serialize().toString('hex'), txWith0x.serialize().toString('hex'))
     st.end()
