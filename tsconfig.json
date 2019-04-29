@@ -1,7 +1,0 @@
-{
-  "extends": "@ethereumjs/config-tsc",
-  "include": ["src/**/*.ts", "test/**/*.ts"],
-  "compilerOptions": {
-    "outDir": "test-build"
-  }
-}
