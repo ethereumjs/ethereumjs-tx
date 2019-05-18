@@ -1,6 +1,5 @@
 import {
   BN,
-  defineProperties,
   bufferToInt,
   ecrecover,
   rlphash,
@@ -9,10 +8,11 @@ import {
   toBuffer,
   rlp,
   stripZeros,
+  bufferToHex,
 } from 'ethereumjs-util'
 import Common from 'ethereumjs-common'
 import { Buffer } from 'buffer'
-import { BufferLike, PrefixedHexString, TxData, TransactionOptions } from './types'
+import { TxData, TransactionOptions, TxValues, PrefixedHexString } from './types'
 
 // secp256k1n/2
 const N_DIV_2 = new BN('7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0', 16)
@@ -21,26 +21,62 @@ const N_DIV_2 = new BN('7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46
  * An Ethereum transaction.
  */
 export default class Transaction {
-  public raw!: Buffer[]
-  public nonce!: Buffer
-  public gasLimit!: Buffer
-  public gasPrice!: Buffer
-  public to!: Buffer
-  public value!: Buffer
-  public data!: Buffer
-  public v!: Buffer
-  public r!: Buffer
-  public s!: Buffer
-
+  // We use the ! operator here because these values are initialized in setters, and TS doesn't
+  // realize that.
+  private _nonce!: Buffer
+  private _gasLimit!: Buffer
+  private _gasPrice!: Buffer
+  private _to!: Buffer
+  private _value!: Buffer
+  private _data!: Buffer
+  private _v!: Buffer
+  private _r!: Buffer
+  private _s!: Buffer
   private _common: Common
-  private _senderPubKey?: Buffer
-  protected _from?: Buffer
+
+  public static fromTxData(txData: TxData, opts: TransactionOptions = {}) {
+    return new Transaction(
+      {
+        nonce: toBuffer(txData.nonce || '0x'),
+        gasPrice: toBuffer(txData.gasPrice || '0x'),
+        gasLimit: toBuffer(txData.gasLimit || '0x'),
+        to: toBuffer(txData.to || '0x'),
+        value: toBuffer(txData.value || '0x'),
+        data: toBuffer(txData.data || '0x'),
+        v: toBuffer(txData.v || '0x'),
+        r: toBuffer(txData.r || '0x'),
+        s: toBuffer(txData.s || '0x'),
+      },
+      opts,
+    )
+  }
+
+  public static fromRlpSerializedTx(serialized: Buffer, opts: TransactionOptions = {}) {
+    const values = rlp.decode(serialized)
+    if (!Array.isArray(values)) {
+      throw new Error('Invalid serialized tx input')
+    }
+
+    return new Transaction(
+      {
+        nonce: values[0] || new Buffer([]),
+        gasPrice: values[1] || new Buffer([]),
+        gasLimit: values[2] || new Buffer([]),
+        to: values[3] || new Buffer([]),
+        value: values[4] || new Buffer([]),
+        data: values[5] || new Buffer([]),
+        v: values[6] || new Buffer([]),
+        r: values[7] || new Buffer([]),
+        s: values[8] || new Buffer([]),
+      },
+      opts,
+    )
+  }
 
   /**
    * Creates a new transaction from an object with its fields' values.
    *
-   * @param data - A transaction can be initialized with its rlp representation, an array containing
-   * the value of its fields in order, or an object containing them by name.
+   * @param values - An object with a buffer for each of the transaction's fields.
    *
    * @param opts - The transaction's options, used to indicate the chain and hardfork the
    * transactions belongs to.
@@ -48,27 +84,8 @@ export default class Transaction {
    * @note Transaction objects implement EIP155 by default. To disable it, use the constructor's
    * second parameter to set a chain and hardfork before EIP155 activation (i.e. before Spurious
    * Dragon.)
-   *
-   * @example
-   * ```js
-   * const txData = {
-   *   nonce: '0x00',
-   *   gasPrice: '0x09184e72a000',
-   *   gasLimit: '0x2710',
-   *   to: '0x0000000000000000000000000000000000000000',
-   *   value: '0x00',
-   *   data: '0x7f7465737432000000000000000000000000000000000000000000000000000000600057',
-   *   v: '0x1c',
-   *   r: '0x5e1d3a76fbf824220eafc8c79ad578ad2b67d01b0c2425eb1f1347e8f50882ab',
-   *   s: '0x5bd428537f05f9830e93792f90ea6a3e2d1ee84952dd96edbae9f658f831ab13'
-   * };
-   * const tx = new Transaction(txData);
-   * ```
    */
-  constructor(
-    data: Buffer | PrefixedHexString | BufferLike[] | TxData = {},
-    opts: TransactionOptions = {},
-  ) {
+  constructor(values: TxValues, opts: TransactionOptions = {}) {
     // instantiate Common class instance based on passed options
     if (opts.common) {
       if (opts.chain || opts.hardfork) {
@@ -85,82 +102,15 @@ export default class Transaction {
       this._common = new Common(chain, hardfork)
     }
 
-    // Define Properties
-    const fields = [
-      {
-        name: 'nonce',
-        length: 32,
-        allowLess: true,
-        default: new Buffer([]),
-      },
-      {
-        name: 'gasPrice',
-        length: 32,
-        allowLess: true,
-        default: new Buffer([]),
-      },
-      {
-        name: 'gasLimit',
-        alias: 'gas',
-        length: 32,
-        allowLess: true,
-        default: new Buffer([]),
-      },
-      {
-        name: 'to',
-        allowZero: true,
-        length: 20,
-        default: new Buffer([]),
-      },
-      {
-        name: 'value',
-        length: 32,
-        allowLess: true,
-        default: new Buffer([]),
-      },
-      {
-        name: 'data',
-        alias: 'input',
-        allowZero: true,
-        default: new Buffer([]),
-      },
-      {
-        name: 'v',
-        allowZero: true,
-        default: new Buffer([]),
-      },
-      {
-        name: 'r',
-        length: 32,
-        allowZero: true,
-        allowLess: true,
-        default: new Buffer([]),
-      },
-      {
-        name: 's',
-        length: 32,
-        allowZero: true,
-        allowLess: true,
-        default: new Buffer([]),
-      },
-    ]
-
-    // attached serialize
-    defineProperties(this, fields, data)
-
-    /**
-     * @property {Buffer} from (read only) sender address of this transaction, mathematically derived from other parameters.
-     * @name from
-     * @memberof Transaction
-     */
-    Object.defineProperty(this, 'from', {
-      enumerable: true,
-      configurable: true,
-      get: this.getSenderAddress.bind(this),
-    })
-
-    this._validateV(this.v)
-    this._overrideVSetterWithValidation()
+    this.nonce = values.nonce
+    this.gasPrice = values.gasPrice
+    this.gasLimit = values.gasLimit
+    this.to = values.to
+    this.value = values.value
+    this.data = values.data
+    this.v = values.v
+    this.r = values.r
+    this.s = values.s
   }
 
   /**
@@ -172,28 +122,50 @@ export default class Transaction {
 
   /**
    * Computes a sha3-256 hash of the serialized tx
-   * @param includeSignature - Whether or not to include the signature
    */
-  hash(includeSignature: boolean = true): Buffer {
-    let items
-    if (includeSignature) {
-      items = this.raw
-    } else {
-      if (this._implementsEIP155()) {
-        items = [
-          ...this.raw.slice(0, 6),
-          toBuffer(this.getChainId()),
-          // TODO: stripping zeros should probably be a responsibility of the rlp module
-          stripZeros(toBuffer(0)),
-          stripZeros(toBuffer(0)),
-        ]
-      } else {
-        items = this.raw.slice(0, 6)
-      }
+  hash(): Buffer {
+    const values = [
+      this.nonce,
+      this.gasPrice,
+      this.gasLimit,
+      this.to,
+      this.value,
+      this.data,
+      this.v,
+      this.r,
+      this.s,
+    ]
+
+    return rlphash(values.map(stripZeros))
+  }
+
+  getMessageToSign() {
+    const values = [this.nonce, this.gasPrice, this.gasLimit, this.to, this.value, this.data]
+
+    // EIP155 spec:
+    // If block.number >= 2,675,000 and v = CHAIN_ID * 2 + 35 or v = CHAIN_ID * 2 + 36, then when computing
+    // the hash of a transaction for purposes of signing or recovering, instead of hashing only the first six
+    // elements (i.e. nonce, gasprice, startgas, to, value, data), hash nine elements, with v replaced by
+    // CHAIN_ID, r = 0 and s = 0.
+    const v = bufferToInt(this.v)
+    const onEIP155BlockOrLater = this._common.gteHardfork('spuriousDragon')
+    const vAndChainIdMeetEIP155Conditions =
+      v === this.getChainId() * 2 + 35 || v === this.getChainId() * 2 + 36
+    const meetsAllEIP155Conditions = vAndChainIdMeetEIP155Conditions && onEIP155BlockOrLater
+
+    // We sign with EIP155 all transactions after spuriousDragon
+    const seeksReplayProtection = onEIP155BlockOrLater
+
+    if (
+      (!this.isSigned() && seeksReplayProtection) ||
+      (this.isSigned() && meetsAllEIP155Conditions)
+    ) {
+      values.push(toBuffer(this.getChainId()))
+      values.push(toBuffer(0))
+      values.push(toBuffer(0))
     }
 
-    // create hash
-    return rlphash(items)
+    return rlphash(values.map(stripZeros))
   }
 
   /**
@@ -207,41 +179,31 @@ export default class Transaction {
    * returns the sender's address
    */
   getSenderAddress(): Buffer {
-    if (this._from) {
-      return this._from
-    }
-    const pubkey = this.getSenderPublicKey()
-    this._from = publicToAddress(pubkey)
-    return this._from
+    return publicToAddress(this.getSenderPublicKey())
   }
 
   /**
    * returns the public key of the sender
    */
   getSenderPublicKey(): Buffer {
-    if (!this.verifySignature()) {
+    if (!this.isSigned()) {
+      throw new Error("This transactions hasn't been signed yet")
+    }
+
+    const msgHash = this.getMessageToSign()
+
+    // All transaction signatures whose s-value is greater than secp256k1n/2 are considered invalid.
+    if (this._common.gteHardfork('homestead') && new BN(this.s).cmp(N_DIV_2) === 1) {
       throw new Error('Invalid Signature')
     }
 
-    // If the signature was verified successfully the _senderPubKey field is defined
-    return this._senderPubKey!
-  }
-
-  /**
-   * Determines if the signature is valid
-   */
-  verifySignature(): boolean {
-    const msgHash = this.hash(false)
-    // All transaction signatures whose s-value is greater than secp256k1n/2 are considered invalid.
-    if (this._common.gteHardfork('homestead') && new BN(this.s).cmp(N_DIV_2) === 1) {
-      return false
-    }
+    let senderPubKey: Buffer
 
     try {
       const v = bufferToInt(this.v)
       const useChainIdWhileRecoveringPubKey =
         v >= this.getChainId() * 2 + 35 && this._common.gteHardfork('spuriousDragon')
-      this._senderPubKey = ecrecover(
+      senderPubKey = ecrecover(
         msgHash,
         v,
         this.r,
@@ -249,10 +211,26 @@ export default class Transaction {
         useChainIdWhileRecoveringPubKey ? this.getChainId() : undefined,
       )
     } catch (e) {
-      return false
+      throw new Error('Invalid Signature')
     }
 
-    return !!this._senderPubKey
+    // TODO: Should we keep this check? Or just return whatever ecrecover returns?
+    if (!!senderPubKey) {
+      throw new Error('Invalid Signature')
+    }
+
+    return senderPubKey
+  }
+
+  /**
+   * Determines if the signature is valid
+   */
+  verifySignature(): boolean {
+    try {
+      return !!this.getSenderPublicKey()
+    } catch (e) {
+      return false
+    }
   }
 
   /**
@@ -266,24 +244,25 @@ export default class Transaction {
     this.s = new Buffer([])
     this.r = new Buffer([])
 
-    const msgHash = this.hash(false)
+    const msgHash = this.getMessageToSign()
     const sig = ecsign(msgHash, privateKey)
 
     if (this._implementsEIP155()) {
       sig.v += this.getChainId() * 2 + 8
     }
 
-    Object.assign(this, sig)
+    this.v = toBuffer(sig.v)
+    this.r = toBuffer(sig.r)
+    this.s = toBuffer(sig.s)
   }
 
   /**
    * The amount of gas paid for the data in this tx
    */
   getDataFee(): BN {
-    const data = this.raw[5]
     const cost = new BN(0)
-    for (let i = 0; i < data.length; i++) {
-      data[i] === 0
+    for (let i = 0; i < this.data.length; i++) {
+      this.data[i] === 0
         ? cost.iaddn(this._common.param('gasPrices', 'txDataZero'))
         : cost.iaddn(this._common.param('gasPrices', 'txDataNonZero'))
     }
@@ -324,28 +303,140 @@ export default class Transaction {
       errors.push([`gas limit is too low. Need at least ${this.getBaseFee()}`])
     }
 
-    if (stringError === false) {
+    if (!stringError) {
       return errors.length === 0
-    } else {
-      return errors.join(' ')
     }
+
+    return errors.join(' ')
   }
 
   /**
    * Returns the rlp encoding of the transaction
    */
   serialize(): Buffer {
-    // Note: This never gets executed, defineProperties overwrites it.
-    return rlp.encode(this.raw)
+    const values = [
+      this.nonce,
+      this.gasPrice,
+      this.gasLimit,
+      this.to,
+      this.value,
+      this.data,
+      this.v,
+      this.r,
+      this.s,
+    ]
+
+    return rlp.encode(values.map(stripZeros))
   }
 
-  /**
-   * Returns the transaction in JSON format
-   * @see {@link https://github.com/ethereumjs/ethereumjs-util/blob/master/docs/index.md#defineproperties|ethereumjs-util}
-   */
-  toJSON(labels: boolean = false): { [key: string]: string } | string[] {
-    // Note: This never gets executed, defineProperties overwrites it.
-    return {}
+  toJSON(): { [field in keyof TxValues]: PrefixedHexString } {
+    return {
+      nonce: bufferToHex(this.nonce),
+      gasPrice: bufferToHex(this.gasPrice),
+      gasLimit: bufferToHex(this.gasLimit),
+      to: bufferToHex(this.to),
+      value: bufferToHex(this.value),
+      data: bufferToHex(this.data),
+      v: bufferToHex(this.v),
+      r: bufferToHex(this.r),
+      s: bufferToHex(this.s),
+    }
+  }
+
+  public isSigned(): boolean {
+    return this.v.length > 0 && this.r.length > 0 && this.s.length > 0
+  }
+
+  get nonce(): Buffer {
+    return this._nonce
+  }
+
+  set nonce(value: Buffer) {
+    this._validateValue(value, 32)
+    this._nonce = value
+  }
+
+  get gasPrice(): Buffer {
+    return this._gasPrice
+  }
+
+  set gasPrice(value: Buffer) {
+    this._validateValue(value, 32)
+    this._gasPrice = value
+  }
+
+  get gasLimit(): Buffer {
+    return this._gasLimit
+  }
+
+  set gasLimit(value: Buffer) {
+    this._validateValue(value, 32)
+    this._gasLimit = value
+  }
+
+  get to(): Buffer {
+    return this._to
+  }
+
+  set to(value: Buffer) {
+    this._validateValue(value, 20)
+    this._to = value
+  }
+
+  get value(): Buffer {
+    return this._nonce
+  }
+
+  set value(value: Buffer) {
+    this._validateValue(value, 32)
+    this._value = value
+  }
+
+  get data(): Buffer {
+    return this._data
+  }
+
+  set data(value: Buffer) {
+    this._validateValue(value)
+    this._data = value
+  }
+
+  get v(): Buffer {
+    return this._v
+  }
+
+  set v(value: Buffer) {
+    this._validateValue(value, 32)
+    this._validateV(value)
+    this._v = value
+  }
+
+  get r(): Buffer {
+    return this._r
+  }
+
+  set r(value: Buffer) {
+    this._validateValue(value, 32)
+    this._r = value
+  }
+
+  get s(): Buffer {
+    return this._s
+  }
+
+  set s(value: Buffer) {
+    this._validateValue(value, 32)
+    this._s = value
+  }
+
+  private _validateValue(value: any, maxLength?: number) {
+    if (!(value instanceof Buffer)) {
+      throw new Error("Value should be a buffer. Please, see ethereumjs-util's toBuffer function")
+    }
+
+    if (maxLength !== undefined && value.length > maxLength) {
+      throw new Error(`Value shouldn't have more than ${maxLength} bytes`)
+    }
   }
 
   private _validateV(v?: Buffer): void {
