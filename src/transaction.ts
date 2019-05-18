@@ -57,6 +57,14 @@ export default class Transaction {
       throw new Error('Invalid serialized tx input')
     }
 
+    return this.fromValuesArray(values, opts)
+  }
+
+  public static fromValuesArray(values: Buffer[], opts: TransactionOptions = {}) {
+    if (values.length > 9) {
+      throw new Error('Invalid transaction. More values than expected were received')
+    }
+
     return new Transaction(
       {
         nonce: values[0] || new Buffer([]),
@@ -125,47 +133,37 @@ export default class Transaction {
    */
   hash(): Buffer {
     const values = [
-      this.nonce,
-      this.gasPrice,
-      this.gasLimit,
+      stripZeros(this.nonce),
+      stripZeros(this.gasPrice),
+      stripZeros(this.gasLimit),
       this.to,
-      this.value,
+      stripZeros(this.value),
       this.data,
       this.v,
-      this.r,
-      this.s,
+      stripZeros(this.r),
+      stripZeros(this.s),
     ]
 
-    return rlphash(values.map(stripZeros))
+    return rlphash(values)
   }
 
   getMessageToSign() {
-    const values = [this.nonce, this.gasPrice, this.gasLimit, this.to, this.value, this.data]
+    const values = [
+      stripZeros(this.nonce),
+      stripZeros(this.gasPrice),
+      stripZeros(this.gasLimit),
+      this.to,
+      stripZeros(this.value),
+      this.data,
+    ]
 
-    // EIP155 spec:
-    // If block.number >= 2,675,000 and v = CHAIN_ID * 2 + 35 or v = CHAIN_ID * 2 + 36, then when computing
-    // the hash of a transaction for purposes of signing or recovering, instead of hashing only the first six
-    // elements (i.e. nonce, gasprice, startgas, to, value, data), hash nine elements, with v replaced by
-    // CHAIN_ID, r = 0 and s = 0.
-    const v = bufferToInt(this.v)
-    const onEIP155BlockOrLater = this._common.gteHardfork('spuriousDragon')
-    const vAndChainIdMeetEIP155Conditions =
-      v === this.getChainId() * 2 + 35 || v === this.getChainId() * 2 + 36
-    const meetsAllEIP155Conditions = vAndChainIdMeetEIP155Conditions && onEIP155BlockOrLater
-
-    // We sign with EIP155 all transactions after spuriousDragon
-    const seeksReplayProtection = onEIP155BlockOrLater
-
-    if (
-      (!this.isSigned() && seeksReplayProtection) ||
-      (this.isSigned() && meetsAllEIP155Conditions)
-    ) {
+    if (this._implementsEIP155()) {
       values.push(toBuffer(this.getChainId()))
-      values.push(toBuffer(0))
-      values.push(toBuffer(0))
+      values.push(stripZeros(toBuffer(0)))
+      values.push(stripZeros(toBuffer(0)))
     }
 
-    return rlphash(values.map(stripZeros))
+    return rlphash(values)
   }
 
   /**
@@ -194,7 +192,9 @@ export default class Transaction {
 
     // All transaction signatures whose s-value is greater than secp256k1n/2 are considered invalid.
     if (this._common.gteHardfork('homestead') && new BN(this.s).cmp(N_DIV_2) === 1) {
-      throw new Error('Invalid Signature')
+      throw new Error(
+        'Invalid Signature: s-values greater than secp256k1n/2 are considered invalid',
+      )
     }
 
     let senderPubKey: Buffer
@@ -214,11 +214,6 @@ export default class Transaction {
       throw new Error('Invalid Signature')
     }
 
-    // TODO: Should we keep this check? Or just return whatever ecrecover returns?
-    if (!!senderPubKey) {
-      throw new Error('Invalid Signature')
-    }
-
     return senderPubKey
   }
 
@@ -227,7 +222,7 @@ export default class Transaction {
    */
   verifySignature(): boolean {
     try {
-      return !!this.getSenderPublicKey()
+      return stripZeros(this.getSenderPublicKey()).length !== 0
     } catch (e) {
       return false
     }
@@ -252,8 +247,8 @@ export default class Transaction {
     }
 
     this.v = toBuffer(sig.v)
-    this.r = toBuffer(sig.r)
-    this.s = toBuffer(sig.s)
+    this.r = sig.r
+    this.s = sig.s
   }
 
   /**
@@ -303,11 +298,11 @@ export default class Transaction {
       errors.push([`gas limit is too low. Need at least ${this.getBaseFee()}`])
     }
 
-    if (!stringError) {
-      return errors.length === 0
+    if (stringError) {
+      return errors.join(' ')
     }
 
-    return errors.join(' ')
+    return errors.length === 0
   }
 
   /**
@@ -315,18 +310,18 @@ export default class Transaction {
    */
   serialize(): Buffer {
     const values = [
-      this.nonce,
-      this.gasPrice,
-      this.gasLimit,
+      stripZeros(this.nonce),
+      stripZeros(this.gasPrice),
+      stripZeros(this.gasLimit),
       this.to,
-      this.value,
+      stripZeros(this.value),
       this.data,
       this.v,
-      this.r,
-      this.s,
+      stripZeros(this.r),
+      stripZeros(this.s),
     ]
 
-    return rlp.encode(values.map(stripZeros))
+    return rlp.encode(values)
   }
 
   toJSON(): { [field in keyof TxValues]: PrefixedHexString } {
@@ -352,7 +347,7 @@ export default class Transaction {
   }
 
   set nonce(value: Buffer) {
-    this._validateValue(value, 32)
+    this._validateIsBufferOfLengthOrLess(value, 32)
     this._nonce = value
   }
 
@@ -361,7 +356,7 @@ export default class Transaction {
   }
 
   set gasPrice(value: Buffer) {
-    this._validateValue(value, 32)
+    this._validateIsBufferOfLengthOrLess(value, 32)
     this._gasPrice = value
   }
 
@@ -370,7 +365,7 @@ export default class Transaction {
   }
 
   set gasLimit(value: Buffer) {
-    this._validateValue(value, 32)
+    this._validateIsBufferOfLengthOrLess(value, 32)
     this._gasLimit = value
   }
 
@@ -379,16 +374,16 @@ export default class Transaction {
   }
 
   set to(value: Buffer) {
-    this._validateValue(value, 20)
+    this._validateIsBufferOfLengthOrEmpty(value, 20)
     this._to = value
   }
 
   get value(): Buffer {
-    return this._nonce
+    return this._value
   }
 
   set value(value: Buffer) {
-    this._validateValue(value, 32)
+    this._validateIsBufferOfLengthOrLess(value, 32)
     this._value = value
   }
 
@@ -397,7 +392,7 @@ export default class Transaction {
   }
 
   set data(value: Buffer) {
-    this._validateValue(value)
+    this._validateIsBuffer(value)
     this._data = value
   }
 
@@ -406,7 +401,7 @@ export default class Transaction {
   }
 
   set v(value: Buffer) {
-    this._validateValue(value, 32)
+    this._validateIsBuffer(value)
     this._validateV(value)
     this._v = value
   }
@@ -416,7 +411,7 @@ export default class Transaction {
   }
 
   set r(value: Buffer) {
-    this._validateValue(value, 32)
+    this._validateIsBufferOfLengthOrLess(value, 32)
     this._r = value
   }
 
@@ -425,17 +420,61 @@ export default class Transaction {
   }
 
   set s(value: Buffer) {
-    this._validateValue(value, 32)
+    this._validateIsBufferOfLengthOrLess(value, 32)
     this._s = value
   }
 
-  private _validateValue(value: any, maxLength?: number) {
-    if (!(value instanceof Buffer)) {
-      throw new Error("Value should be a buffer. Please, see ethereumjs-util's toBuffer function")
+  private _implementsEIP155(): boolean {
+    const onEIP155BlockOrLater = this._common.gteHardfork('spuriousDragon')
+
+    if (!this.isSigned()) {
+      // We sign with EIP155 all unsigned transactions after spuriousDragon
+      return onEIP155BlockOrLater
     }
 
-    if (maxLength !== undefined && value.length > maxLength) {
-      throw new Error(`Value shouldn't have more than ${maxLength} bytes`)
+    // EIP155 spec:
+    // If block.number >= 2,675,000 and v = CHAIN_ID * 2 + 35 or v = CHAIN_ID * 2 + 36, then when computing
+    // the hash of a transaction for purposes of signing or recovering, instead of hashing only the first six
+    // elements (i.e. nonce, gasprice, startgas, to, value, data), hash nine elements, with v replaced by
+    // CHAIN_ID, r = 0 and s = 0.
+    const v = bufferToInt(this.v)
+
+    const vAndChainIdMeetEIP155Conditions =
+      v === this.getChainId() * 2 + 35 || v === this.getChainId() * 2 + 36
+    return vAndChainIdMeetEIP155Conditions && onEIP155BlockOrLater
+  }
+
+  private _validateIsBufferOfLengthOrLess(value: any, length: number) {
+    this._validateIsBuffer(value)
+    const buffer = value as Buffer
+
+    if (buffer.length > length) {
+      throw new Error(`Value shouldn't have more than ${length} bytes`)
+    }
+  }
+
+  private _validateIsBufferOfLengthOrEmpty(value: any, length: number) {
+    this._validateIsBuffer(value)
+    const buffer = value as Buffer
+
+    if (buffer.length !== length && buffer.length !== 0) {
+      throw new Error(`Value shouldn't have ${length} bytes or be empty`)
+    }
+  }
+
+  private _validateIsBufferOfLength(value: any, length: number) {
+    this._validateIsBuffer(value)
+    const buffer = value as Buffer
+
+    if (buffer.length !== length) {
+      throw new Error(`Value shouldn't have ${length} bytes`)
+    }
+  }
+
+  private _validateIsBuffer(value: any) {
+    // This is here for JS users
+    if (!(value instanceof Buffer)) {
+      throw new Error("Value should be a buffer. Please, see ethereumjs-util's toBuffer function")
     }
   }
 
@@ -481,25 +520,5 @@ export default class Transaction {
         vDescriptor.set!(v)
       },
     })
-  }
-
-  private _implementsEIP155(): boolean {
-    const onEIP155BlockOrLater = this._common.gteHardfork('spuriousDragon')
-
-    if (!this._isSigned()) {
-      // We sign with EIP155 all unsigned transactions after spuriousDragon
-      return onEIP155BlockOrLater
-    }
-
-    // EIP155 spec:
-    // If block.number >= 2,675,000 and v = CHAIN_ID * 2 + 35 or v = CHAIN_ID * 2 + 36, then when computing
-    // the hash of a transaction for purposes of signing or recovering, instead of hashing only the first six
-    // elements (i.e. nonce, gasprice, startgas, to, value, data), hash nine elements, with v replaced by
-    // CHAIN_ID, r = 0 and s = 0.
-    const v = bufferToInt(this.v)
-
-    const vAndChainIdMeetEIP155Conditions =
-      v === this.getChainId() * 2 + 35 || v === this.getChainId() * 2 + 36
-    return vAndChainIdMeetEIP155Conditions && onEIP155BlockOrLater
   }
 }

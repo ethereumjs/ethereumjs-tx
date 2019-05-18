@@ -43,7 +43,7 @@ tape('TransactionTests', t => {
             const forkTestData = testData[forkName]
             const shouldBeInvalid = Object.keys(forkTestData).length === 0
             try {
-              tx = new Tx(rawTx, {
+              tx = Tx.fromRlpSerializedTx(rawTx, {
                 hardfork: forkNameMap[forkName],
                 chain: 1,
               })
